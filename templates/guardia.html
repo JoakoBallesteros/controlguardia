@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Guardia Fin de Semana</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
+        rel="stylesheet">
+  <style>
+    body { padding: 2rem; }
+    table th, table td { vertical-align: middle; }
+    .form-select { width: auto; display: inline-block; margin-right: 1rem; }
+    .time-filter, .form-control { width: auto; display: inline-block; margin-right: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="mb-4">Guardia Fin de Semana</h1>
+    <div class="mb-3">
+      <label for="daySelect" class="form-label me-2">Selecciona día de guardia:</label>
+      <select id="daySelect" class="form-select">
+        <option value="">--</option>
+        <option value="Sábado">Sábado</option>
+        <option value="Domingo">Domingo</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label me-2">Filtrar por hora de ingreso:</label>
+      <input id="timeStart" type="time" class="time-filter form-control">
+      <span class="me-2">a</span>
+      <input id="timeEnd" type="time" class="time-filter form-control">
+      <button id="applyFilter" class="btn btn-secondary ms-2">Aplicar Filtro</button>
+    </div>
+    <div id="guardiaTable"></div>
+  </div>
+
+  <script>
+    // Recuperar datos almacenados
+    const stored = localStorage.getItem('guardiaData');
+    const guardiaData = stored ? JSON.parse(stored) : [];
+
+    // Leer día desde la query string
+    const params = new URLSearchParams(window.location.search);
+    const currentDay = params.get('day') || '';
+    document.getElementById('daySelect').value = currentDay;
+
+    // Obtener filtros de tiempo
+    function getTimeFilter() {
+      return {
+        start: document.getElementById('timeStart').value,
+        end:   document.getElementById('timeEnd').value
+      };
+    }
+
+    // Función de renderizado de tabla
+    function renderTable(day) {
+      if (!day) {
+        document.getElementById('guardiaTable').innerHTML = '';
+        return;
+      }
+      const { start, end } = getTimeFilter();
+      const ingresoCol = `Ingreso ${day}`;
+      let filtered = guardiaData.filter(r =>
+        r[ingresoCol] && r[ingresoCol] !== '00:00'
+      );
+      if (start) {
+        filtered = filtered.filter(r => r[ingresoCol] >= start);
+      }
+      if (end) {
+        filtered = filtered.filter(r => r[ingresoCol] <= end);
+      }
+      if (!filtered.length) {
+        document.getElementById('guardiaTable').innerHTML =
+          '<p>No hay agentes en guardia para esos criterios.</p>';
+        return;
+      }
+      // Cabeceras dinámicas
+      const cols = Object.keys(filtered[0]);
+      let html = '<table class="table table-sm table-bordered"><thead><tr>';
+      cols.forEach(c => html += `<th>${c}</th>`);
+      html += '<th>Estado</th><th>Observación</th></tr></thead><tbody>';
+      filtered.forEach(r => {
+        html += '<tr>';
+        cols.forEach(c => html += `<td>${r[c]||''}</td>`);
+        html += '<td><select class="form-select"><option value="">--</option>'
+              + '<option>Presente</option><option>Ausente</option>'
+              + '<option>Mal cargado</option></select></td>';
+        html += '<td><input type="text" class="form-control" placeholder="Observación"></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('guardiaTable').innerHTML = html;
+    }
+
+    // Eventos
+    document.getElementById('daySelect').addEventListener('change', e => {
+      const day = e.target.value;
+      const url = new URL(window.location);
+      if (day) url.searchParams.set('day', day);
+      else    url.searchParams.delete('day');
+      window.history.replaceState(null, '', url);
+      renderTable(day);
+    });
+    document.getElementById('applyFilter').addEventListener('click', () => {
+      renderTable(document.getElementById('daySelect').value);
+    });
+
+    // Mostrar tabla al cargar
+    renderTable(currentDay);
+  </script>
+</body>
+</html>

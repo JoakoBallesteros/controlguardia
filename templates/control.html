@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Control Fin de Semana</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
+        rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+    body { padding: 2rem; }
+    table th, table td { vertical-align: middle; }
+    .form-select, .form-control { width: 100%; }
+    input[type="time"] { width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="mb-4">Control de Presencia Fines de Semana</h1>
+
+    {% if error %}
+      <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('control_fin_semana') }}" enctype="multipart/form-data" class="mb-4">
+      <label for="file" class="form-label">Sube el archivo de programación</label>
+      <input id="file" name="file" type="file" class="form-control mb-3" accept=".xls,.xlsx" required>
+      <button type="submit" class="btn btn-primary">Cargar y Mostrar</button>
+    </form>
+
+    {% if groups %}
+      <ul class="nav nav-tabs" role="tablist">
+        {% for team in groups.keys() %}
+          <li class="nav-item">
+            <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-{{ loop.index0 }}">
+              {{ team }}
+            </button>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <div class="tab-content">
+        {% for team, rows in groups.items() %}
+          <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="pane-{{ loop.index0 }}">
+            <h4 class="mt-3">Programación: {{ team }}</h4>
+            <table class="table table-sm table-bordered">
+              <thead>
+                <tr>
+                  <th>Intercambio</th>
+                  <th>Tipo</th>
+                  {% for col in columns %}
+                    <th>{{ col }}</th>
+                  {% endfor %}
+                  <th>Observación</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr data-segmento="{{ row['Segmento'] }}">
+                    <td>
+                      <select class="swap-select form-select">
+                        <option value="">--</option>
+                      </select>
+                    </td>
+                    <td>
+                      <select class="type-select form-select">
+                        <option value="franco">Franco</option>
+                        <option value="horario">Horario</option>
+                      </select>
+                    </td>
+                    {% for col in columns %}
+                      {% if col.startswith('Ingreso') or col.startswith('Egreso') %}
+                        <td>
+                          <input type="time" class="form-control time-cell" data-col="{{ col }}" value="{{ row[col][:5] if row[col] }}">
+                        </td>
+                      {% else %}
+                        <td class="data-cell" data-col="{{ col }}">{{ row[col] }}</td>
+                      {% endif %}
+                    {% endfor %}
+                    <td>
+                      <input type="text" class="obs-initial form-control" placeholder="Observación">
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="mt-4">
+        <button id="generateBtn" class="btn btn-success">Generar Guardia</button>
+      </div>
+    {% endif %}
+  </div>
+
+  <script>
+    const days = ['Sábado', 'Domingo'];
+    const timeCols = days.flatMap(d => [`Ingreso ${d}`, `Egreso ${d}`]);
+    const allCols = {{ columns|tojson }};
+
+    function isFree(rowEl, day) {
+      const inVal = rowEl.querySelector(`[data-col="Ingreso ${day}"]`).value;
+      const egVal = rowEl.querySelector(`[data-col="Egreso ${day}"]`).value;
+      return (!inVal || inVal === '00:00') && (!egVal || egVal === '00:00');
+    }
+
+    function canSwapFranco(aEl, bEl) {
+      const freeSatA = isFree(aEl, 'Sábado'), freeSatB = isFree(bEl, 'Sábado');
+      const freeDomA = isFree(aEl, 'Domingo'), freeDomB = isFree(bEl, 'Domingo');
+      return (freeSatA !== freeSatB) || (freeDomA !== freeDomB);
+    }
+
+    function canSwapHorario(aEl, bEl) {
+      return days.some(d => {
+        const worksA = !isFree(aEl, d);
+        const worksB = !isFree(bEl, d);
+        return worksA && worksB;
+      });
+    }
+
+    function swapCell(aEl, bEl, col) {
+      const inpA = aEl.querySelector(`[data-col="${col}"]`);
+      const inpB = bEl.querySelector(`[data-col="${col}"]`);
+      if (inpA && inpA.type === 'time') {
+        const tmp = inpA.value; inpA.value = inpB.value; inpB.value = tmp;
+      } else {
+        const tdA = aEl.querySelector(`[data-col="${col}"]`);
+        const tdB = bEl.querySelector(`[data-col="${col}"]`);
+        const txt = tdA.textContent.trim(); tdA.textContent = tdB.textContent.trim(); tdB.textContent = txt;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const rows = Array.from(document.querySelectorAll('tbody tr')).map(tr => ({ el: tr }));
+
+      rows.forEach(r => {
+        const sel = r.el.querySelector('.swap-select');
+        const seg = r.el.dataset.segmento;
+        rows.filter(o => o.el.dataset.segmento === seg && o.el !== r.el)
+            .forEach(o => {
+              const name = o.el.querySelector('[data-col="Nombre"]').textContent.trim();
+              const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+              sel.appendChild(opt);
+            });
+        sel.addEventListener('change', e => {
+          const other = rows.find(o => o.el.querySelector('[data-col="Nombre"]').textContent.trim() === e.target.value);
+          const type = r.el.querySelector('.type-select').value;
+          if (other) {
+            if (type === 'franco') {
+              if (!canSwapFranco(r.el, other.el)) alert('No se puede intercambiar franco: mismo día libre');
+              else [...allCols, ...timeCols].forEach(c => swapCell(r.el, other.el, c));
+            } else {
+              if (!canSwapHorario(r.el, other.el)) alert('No se puede intercambiar horario: no comparten jornada');
+              else days.forEach(d => { swapCell(r.el, other.el, `Ingreso ${d}`); swapCell(r.el, other.el, `Egreso ${d}`); });
+            }
+          }
+          e.target.value = '';
+        });
+      });
+
+      document.getElementById('generateBtn').addEventListener('click', () => {
+        const finalData = rows.map(r => {
+          const obj = {};
+          allCols.forEach(c => {
+            if (timeCols.includes(c)) obj[c] = r.el.querySelector(`[data-col="${c}"]`).value;
+            else obj[c] = r.el.querySelector(`[data-col="${c}"]`).textContent.trim();
+          });
+          obj.observacion = r.el.querySelector('.obs-initial').value.trim();
+          return obj;
+        });
+        localStorage.setItem('guardiaData', JSON.stringify(finalData));
+        window.location.href = '/guardia';
+      });
+    });
+  </script>
+</body>
+</html>
